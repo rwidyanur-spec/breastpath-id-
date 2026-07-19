@@ -587,7 +587,8 @@ function computeMakrosDraft(d, isBiopsi) {
   if (!isBiopsi && d.kulitAda === "Ada" && d.kulitKelainan && d.kulitKelainan !== "Tidak ada kelainan") s += ` Kulit tampak ${d.kulitKelainan.toLowerCase()}.`;
   const tumorDims = [d.ukuranTumorMakroP, d.ukuranTumorMakroL, d.ukuranTumorMakroT].filter(Boolean).join("x");
   if (tumorDims || d.warnaMakro || d.konsistensi || d.batasTumorMakro) {
-    s += ` Pada pemotongan tampak massa tumor ukuran ${tumorDims || "?"} cm, warna ${d.warnaMakro || "?"}, konsistensi ${d.konsistensi || "?"}, batas ${d.batasTumorMakro ? d.batasTumorMakro.toLowerCase() : "?"}.`;
+    const objekMassa = d.pcrToggle === "Ya" ? "penampang putih curiga massa" : "massa tumor";
+    s += ` Pada pemotongan tampak ${objekMassa} ukuran ${tumorDims || "?"} cm, warna ${d.warnaMakro || "?"}, konsistensi ${d.konsistensi || "?"}, batas ${d.batasTumorMakro ? d.batasTumorMakro.toLowerCase() : "?"}.`;
   }
   if (!isBiopsi) {
     const marginParts = [];
@@ -754,9 +755,11 @@ export default function App() {
       makros = data.makrosDeskripsi || "(belum diisi)";
     }
 
+    const isMassaName = (n) => n.includes("massa") || n.includes("tumor");
+    const massaLabel = data.pcrToggle === "Ya" ? "Penampang putih curiga massa" : null;
     const matchBlock = (nama) => {
       const n = (nama || "").toLowerCase();
-      if (n.includes("massa") || n.includes("tumor")) return data.massaDeskripsi || "Belum diisi.";
+      if (isMassaName(n)) return data.pcrToggle === "Ya" ? data.tumorBedDeskripsi || "Belum diisi." : data.massaDeskripsi || "Belum diisi.";
       if (n.includes("papila")) return data.papilaMikroDeskripsi || "Belum diisi.";
       if (n.includes("kulit")) return data.kulitMikroDeskripsi || "Belum diisi.";
       for (const mk of MARGIN_KEYS) {
@@ -768,9 +771,13 @@ export default function App() {
       return "Tak tampak tanda ganas.";
     };
     let mikrosA = jaringanNumbered.length
-      ? jaringanNumbered.map((j) => `${j.label} ${j.nama || "(tanpa nama)"}\n${matchBlock(j.nama)}`).join("\n\n")
-      : data.massaDeskripsi || "Belum diisi.";
-    let mikros = adaB ? `A.\n${mikrosA}\n\nB.\n${data.mikrosB || "(belum diisi)"}` : mikrosA;
+      ? jaringanNumbered.map((j) => {
+          const n = (j.nama || "").toLowerCase();
+          const displayNama = isMassaName(n) && massaLabel ? massaLabel : j.nama || "(tanpa nama)";
+          return `${j.label} ${displayNama}\n${matchBlock(j.nama)}`;
+        }).join("\n\n")
+      : (data.pcrToggle === "Ya" ? data.tumorBedDeskripsi : data.massaDeskripsi) || "Belum diisi.";
+    let mikros = adaB ? `A. Mammae ${lat}\n${mikrosA}\n\nB. ${data.spesimenTambahan}\n${data.mikrosB || "(belum diisi)"}` : mikrosA;
 
     const icdoUtama = data.jenisHistologi === "Mixed invasive carcinoma (NST + tipe khusus)" ? ICDO_CODES["Invasive carcinoma of No Special Type"] : ICDO_CODES[data.jenisHistologi];
     const icdoKedua = data.mixedTipeKedua ? ICDO_CODES[data.mixedTipeKedua] : null;
@@ -832,7 +839,7 @@ export default function App() {
     kesimpulanA += `\n\n${bullets.map((b) => `- ${b}`).join("\n")}`;
     kesimpulanA += ihkBlock;
 
-    let kesimpulan = adaB ? `A.\n${kesimpulanA}\n\nB.\n${data.kesimpulanB || "(belum diisi)"}` : kesimpulanA;
+    let kesimpulan = adaB ? `A. Mammae ${lat}\n${kesimpulanA}\n\nB. ${data.spesimenTambahan}\n${data.kesimpulanB || "(belum diisi)"}` : kesimpulanA;
 
     return [sediaanLine, "", "Makroskopis:", makros, "", "Mikroskopis:", mikros, "", "Kesimpulan:", kesimpulan].join("\n");
   }
