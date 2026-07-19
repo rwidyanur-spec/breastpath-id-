@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "homepage": "https://USERNAME.github.io/breastpath-id",
+  "homepage": "https://rwidyanur-spec.github.io/breastpath-id-",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
