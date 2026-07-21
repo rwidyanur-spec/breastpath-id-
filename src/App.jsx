@@ -41,7 +41,6 @@ const HISTOLOGI_OPTIONS = [
   "Invasive cribriform carcinoma",
   "Invasive apocrine carcinoma",
   "Metaplastic carcinoma",
-  "DCIS murni, tanpa komponen invasif",
   "Mixed invasive carcinoma (NST + tipe khusus)",
 ];
 const ICDO_CODES = {
@@ -54,7 +53,6 @@ const ICDO_CODES = {
   "Invasive cribriform carcinoma": "8201/3",
   "Invasive apocrine carcinoma": "8401/3",
   "Metaplastic carcinoma": "8575/3",
-  "DCIS murni, tanpa komponen invasif": "8500/2",
 };
 
 const ARSITEKTUR_MAP = {
@@ -77,7 +75,7 @@ const METAPLASTIK_MAP = {
   "Dengan diferensiasi mesenkimal heterolog": "komponen epitel bertransisi menjadi matriks mesenkimal heterolog (kondroid/osteoid/rhabdomyoid)",
 };
 const MIXED_KEDUA_OPTIONS = HISTOLOGI_OPTIONS.filter((o) => o !== "Invasive carcinoma of No Special Type" && o !== "Mixed invasive carcinoma (NST + tipe khusus)" && o !== "DCIS murni, tanpa komponen invasif");
-const SEBUKAN_OPTIONS = ["Sel plasma", "Histiosit", "Neutrofil", "Eosinofil", "Sel datia berinti banyak"];
+const SEBUKAN_OPTIONS = ["Limfosit", "Sel plasma", "Histiosit", "Neutrofil", "Eosinofil", "Sel datia berinti banyak"];
 const STROMA_OPTIONS = ["Desmoplastik", "Hialinisasi", "Fibrosis", "Infiltrasi limfositik dominan", "Kalsifikasi"];
 const MARGIN_KEYS = [
   { key: "superior", label: "Superior" },
@@ -118,12 +116,20 @@ function makeInitialData() {
   usiaPasien: "",
   diagnosisKlinis: "",
 
+  ukuranSpesimenMode: "",
   ukuranSpesimenP: "",
   ukuranSpesimenL: "",
   ukuranSpesimenT: "",
+  ukuranSpesimenDiameter: "",
+  ukuranTumorMakroMode: "",
   ukuranTumorMakroP: "",
   ukuranTumorMakroL: "",
   ukuranTumorMakroT: "",
+  ukuranTumorMakroDiameter: "",
+  biopsiJumlahSpesimen: "",
+  biopsiSatuanJaringan: "",
+  biopsiUkuranMode: "",
+  biopsiPotonganList: [],
   konsistensi: "",
   warnaMakro: "",
   batasTumorMakro: "",
@@ -163,7 +169,7 @@ function makeInitialData() {
   bentukSel: "",
   pleomorfikLevel: "",
   anakInti: "",
-  mitosisPerMM2: "",
+  mitosisPer10LPB: "",
   tilsPersen: "",
   sebukanJenis: [],
   sebukanIntensitas: "",
@@ -333,12 +339,12 @@ function computeTubuleScore(persenStr) {
 function levelToScore(level) {
   return { Ringan: "1", Sedang: "2", Berat: "3" }[level] || null;
 }
-function computeMitoticScore(perMM2) {
-  if (perMM2 === "" || perMM2 === undefined || perMM2 === null) return null;
-  const n = parseFloat(perMM2);
+function computeMitoticScore(per10LPB) {
+  if (per10LPB === "" || per10LPB === undefined || per10LPB === null) return null;
+  const n = parseFloat(per10LPB);
   if (isNaN(n)) return null;
-  if (n < 3) return "1";
-  if (n <= 8) return "2";
+  if (n <= 7) return "1";
+  if (n <= 14) return "2";
   return "3";
 }
 function computeGradeFromScores(t, n, m) {
@@ -424,6 +430,30 @@ function lcisSentence(d) {
   if (d.lcisAda === "Negatif") return "Tidak ditemukan komponen Lobular Carcinoma In Situ (LCIS) pada sediaan ini.";
   return "";
 }
+function computeTumorBedDraft(d) {
+  let s = "";
+  if (d.massaEpidermis === "Ya") {
+    s += "Potongan jaringan dari tumor bed terdiri atas epidermis dilapisi epitel gepeng berlapis berkeratin, stroma jaringan ikat fibrokolagen, hiperemik dan sel-sel lemak matur, diantaranya ";
+  }
+  s += "tampak fibrosis stroma, makrofag berpigmen hemosiderin";
+  const radangParts = [];
+  if (d.sebukanJenis && d.sebukanJenis.length) {
+    const intensitas = d.sebukanIntensitas ? d.sebukanIntensitas.toLowerCase() : "";
+    radangParts.push(`sebukan ${intensitas} ${d.sebukanJenis.join(", ").toLowerCase()}`.replace("  ", " "));
+  }
+  s += radangParts.length ? `, disertai ${radangParts.join(", dan ")}` : ", dan sebukan limfosit kronik";
+  s += " sebagai tanda regresi tumor pasca-terapi neoadjuvan, tanpa residual karsinoma invasif.";
+  if (d.dcisAda === "Negatif" && d.lcisAda === "Negatif") {
+    s += " Tidak ditemukan komponen Ductal Carcinoma In Situ (DCIS) dan Lobular Carcinoma In Situ (LCIS) pada sediaan ini.";
+  } else {
+    const dcisS = dcisSentence(d);
+    if (dcisS) s += ` ${dcisS}`;
+    const lcisS = lcisSentence(d);
+    if (lcisS) s += ` ${lcisS}`;
+  }
+  return s.trim();
+}
+
 function computeMassaDraft(d) {
   if (d.pcrToggle === "Ya") return d.tumorBedDeskripsi || "";
   const lat = d.lateralitas ? ` ${d.lateralitas.toLowerCase()}` : "";
@@ -455,12 +485,12 @@ function computeMassaDraft(d) {
     if (d.polaArsitektur) parts.push(d.polaArsitektur.toLowerCase());
     s += "tersusun " + (parts.join(", ") || "?");
   }
-  s += ". Sel-sel ganas dengan sitoplasma eosinofilik";
+  s += ". Sel-sel ganas";
   s += d.bentukSel ? `, bentuk sel ${d.bentukSel.toLowerCase()}` : "";
   const pleo = pleomorfikSentence(d.pleomorfikLevel, d.anakInti);
   if (pleo) s += `, ${pleo}`;
-  if (d.mitosisPerMM2) s += `, mitosis ${d.mitosisPerMM2}/mm²`;
-  s += ".";
+  if (d.mitosisPer10LPB) s += `, mitosis ${d.mitosisPer10LPB}/10 LPB`;
+  s += ", sitoplasma eosinofilik.";
   const radangParts = [];
   if (d.tilsPersen) radangParts.push(`limfosit pada stroma intratumoral ${d.tilsPersen}%`);
   if (d.sebukanJenis && d.sebukanJenis.length) {
@@ -570,25 +600,59 @@ function computeRCB(d) {
   return { index: rcb.toFixed(3).replace(".", ","), kelas, label };
 }
 
-function computeMakrosDraft(d, isBiopsi) {
+const ANGKA_KATA = ["nol", "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh"];
+function angkaKeKata(n) {
+  return ANGKA_KATA[n] || String(n);
+}
+function ukuranSpesimenText(d) {
+  if (d.ukuranSpesimenMode === "Diameter") return d.ukuranSpesimenDiameter ? `diameter ${d.ukuranSpesimenDiameter} cm` : "diameter ? cm";
   const dims = [d.ukuranSpesimenP, d.ukuranSpesimenL, d.ukuranSpesimenT].filter(Boolean).join("x");
+  return `${dims || "?"} cm`;
+}
+function ukuranTumorMakroText(d) {
+  if (d.ukuranTumorMakroMode === "Diameter") return d.ukuranTumorMakroDiameter ? `diameter ${d.ukuranTumorMakroDiameter} cm` : "diameter ? cm";
+  const dims = [d.ukuranTumorMakroP, d.ukuranTumorMakroL, d.ukuranTumorMakroT].filter(Boolean).join("x");
+  return `${dims || "?"} cm`;
+}
+
+function itemUkuranText(p, mode) {
+  if (mode === "Diameter") return p.diameter ? `diameter ${p.diameter} cm` : "?";
+  const dims = [p.p, p.l, p.t].filter(Boolean).join("x");
+  return dims ? `${dims} cm` : "?";
+}
+
+function computeMakrosDraft(d, isBiopsi) {
   const lat = d.lateralitas ? ` mammae ${d.lateralitas.toLowerCase()}` : "";
-  let s = `Diterima jaringan ${d.jenisTindakan ? d.jenisTindakan.toLowerCase() : "spesimen"}${lat} ukuran ${dims || "?"} cm`;
+  let s = "";
+  let biopsiPakaiMultiPotongan = isBiopsi && d.biopsiPotonganList && d.biopsiPotonganList.length > 0;
+  if (biopsiPakaiMultiPotongan) {
+    const jumlahKata = angkaKeKata(d.biopsiPotonganList.length);
+    const satuan = d.biopsiSatuanJaringan === "Helaian" ? "helaian" : "potong";
+    const ukuranList = d.biopsiPotonganList.map((p) => itemUkuranText(p, d.biopsiUkuranMode));
+    const ukuranJoined = ukuranList.length > 1 ? ukuranList.slice(0, -1).join("; ") + "; dan " + ukuranList[ukuranList.length - 1] : ukuranList[0] || "?";
+    s = `Diterima ${jumlahKata} ${satuan} jaringan ukuran masing-masing ${ukuranJoined}`;
+    if (d.warnaMakro || d.konsistensi) s += `, warna ${d.warnaMakro || "?"}, konsistensi ${d.konsistensi || "?"}`;
+    s += ".";
+  } else {
+    s = `Diterima jaringan ${d.jenisTindakan ? d.jenisTindakan.toLowerCase() : "spesimen"}${lat} ukuran ${ukuranSpesimenText(d)}`;
+  }
   const extras = [];
   if (!isBiopsi) {
     if (d.papilaAda === "Ada") extras.push("papila mammae");
     if (d.kulitAda === "Ada") extras.push("kulit");
     if (d.axillaryTailAda === "Ada") extras.push("axillary tail");
   }
-  if (extras.length === 1) s += `, disertai ${extras[0]}`;
-  else if (extras.length > 1) s += `, disertai ${extras.slice(0, -1).join(", ")}, dan ${extras[extras.length - 1]}`;
-  s += ".";
+  if (!biopsiPakaiMultiPotongan) {
+    if (extras.length === 1) s += `, disertai ${extras[0]}`;
+    else if (extras.length > 1) s += `, disertai ${extras.slice(0, -1).join(", ")}, dan ${extras[extras.length - 1]}`;
+    s += ".";
+  }
   if (!isBiopsi && d.papilaAda === "Ada" && d.papilaKelainan && d.papilaKelainan !== "Tidak ada kelainan") s += ` Papila mammae tampak ${d.papilaKelainan.toLowerCase()}.`;
   if (!isBiopsi && d.kulitAda === "Ada" && d.kulitKelainan && d.kulitKelainan !== "Tidak ada kelainan") s += ` Kulit tampak ${d.kulitKelainan.toLowerCase()}.`;
-  const tumorDims = [d.ukuranTumorMakroP, d.ukuranTumorMakroL, d.ukuranTumorMakroT].filter(Boolean).join("x");
-  if (tumorDims || d.warnaMakro || d.konsistensi || d.batasTumorMakro) {
+  const tumorDimsText = ukuranTumorMakroText(d);
+  if (!biopsiPakaiMultiPotongan && (d.ukuranTumorMakroP || d.ukuranTumorMakroDiameter || d.batasTumorMakro)) {
     const objekMassa = d.pcrToggle === "Ya" ? "penampang putih curiga massa" : "massa tumor";
-    s += ` Pada pemotongan tampak ${objekMassa} ukuran ${tumorDims || "?"} cm, warna ${d.warnaMakro || "?"}, konsistensi ${d.konsistensi || "?"}, batas ${d.batasTumorMakro ? d.batasTumorMakro.toLowerCase() : "?"}.`;
+    s += ` Pada pemotongan tampak ${objekMassa} ukuran ${tumorDimsText}, warna ${d.warnaMakro || "?"}, konsistensi ${d.konsistensi || "?"}, batas ${d.batasTumorMakro ? d.batasTumorMakro.toLowerCase() : "?"}.`;
   }
   if (!isBiopsi) {
     const marginParts = [];
@@ -685,13 +749,10 @@ export default function App() {
   const filledCount = Object.values(data).filter((v) => (Array.isArray(v) ? v.length > 0 : typeof v === "object" && v !== null ? false : v !== "")).length;
 
   const togglePcr = () => {
-    setData((d) => {
-      const next = d.pcrToggle === "Ya" ? "" : "Ya";
-      const tumorBed = next === "Ya" && !d.tumorBedDeskripsi ? TUMOR_BED_DEFAULT : d.tumorBedDeskripsi;
-      return { ...d, pcrToggle: next, tumorBedDeskripsi: tumorBed };
-    });
+    setData((d) => ({ ...d, pcrToggle: d.pcrToggle === "Ya" ? "" : "Ya" }));
   };
   const regenMassa = () => setData((d) => ({ ...d, massaDeskripsi: computeMassaDraft(d) }));
+  const regenTumorBed = () => setData((d) => ({ ...d, tumorBedDeskripsi: computeTumorBedDraft(d) }));
 
   const setPapilaMikroGanas = (val) => setData((d) => ({ ...d, papilaMikroGanas: val, papilaMikroDeskripsi: strukturDraft("papila mammae", val, d.papilaMikroKedalaman) }));
   const setPapilaMikroKedalaman = (val) => setData((d) => ({ ...d, papilaMikroKedalaman: val, papilaMikroDeskripsi: strukturDraft("papila mammae", "Ya", val) }));
@@ -708,6 +769,24 @@ export default function App() {
     });
   };
   const addJaringan = () => setData((d) => ({ ...d, jaringanList: [...d.jaringanList, { id: Date.now(), nama: "", kaset: "" }] }));
+  const setBiopsiJumlah = (val) =>
+    setData((d) => {
+      const n = Math.max(0, parseInt(val) || 0);
+      let list = [...d.biopsiPotonganList];
+      if (n > list.length) {
+        for (let i = list.length; i < n; i++) list.push({ id: Date.now() + i, p: "", l: "", t: "", diameter: "" });
+      } else if (n < list.length) {
+        list = list.slice(0, n);
+      }
+      return { ...d, biopsiJumlahSpesimen: val, biopsiPotonganList: list };
+    });
+  const updateBiopsiDim = (id, idx, val) =>
+    setData((d) => ({
+      ...d,
+      biopsiPotonganList: d.biopsiPotonganList.map((p) => (p.id === id ? { ...p, [["p", "l", "t"][idx]]: val } : p)),
+    }));
+  const updateBiopsiDiameter = (id, val) =>
+    setData((d) => ({ ...d, biopsiPotonganList: d.biopsiPotonganList.map((p) => (p.id === id ? { ...p, diameter: val } : p)) }));
   const updateJaringan = (id, field, val) => setData((d) => ({ ...d, jaringanList: d.jaringanList.map((j) => (j.id === id ? { ...j, [field]: val } : j)) }));
   const removeJaringan = (id) => setData((d) => ({ ...d, jaringanList: d.jaringanList.filter((j) => j.id !== id) }));
   const moveJaringan = (id, dir) =>
@@ -723,7 +802,7 @@ export default function App() {
 
   const tubuleScore = useMemo(() => computeTubuleScore(data.tubulePersen), [data.tubulePersen]);
   const nuclearScore = useMemo(() => levelToScore(data.pleomorfikLevel), [data.pleomorfikLevel]);
-  const mitoticScore = useMemo(() => computeMitoticScore(data.mitosisPerMM2), [data.mitosisPerMM2]);
+  const mitoticScore = useMemo(() => computeMitoticScore(data.mitosisPer10LPB), [data.mitosisPer10LPB]);
   const gradeInfo = useMemo(() => computeGradeFromScores(tubuleScore, nuclearScore, mitoticScore), [tubuleScore, nuclearScore, mitoticScore]);
   const gradeInfo2 = useMemo(() => computeGradeFromScores(data.tubuleScore2, data.nuclearScore2, data.mitoticScore2), [data.tubuleScore2, data.nuclearScore2, data.mitoticScore2]);
 
@@ -794,7 +873,6 @@ export default function App() {
       if (marginGroups.belumBebas.length) diagLine += ` dengan batas sayatan ${marginGroups.belumBebas.join(" dan ")} belum bebas tumor`;
     }
 
-    const rcbLabelID = { "pathologic complete response (pCR)": "pathologic complete response (pCR)", "minimal residual disease": "residu penyakit minimal", "moderate residual disease": "residu penyakit sedang", "extensive residual disease": "residu penyakit luas" };
 
     const bullets = [];
     if (data.dcisAda) bullets.push(`Karsinoma duktal in situ (DCIS): ${data.dcisAda === "Positif" ? "(+) positif" : "(-) negatif"}`);
@@ -835,7 +913,7 @@ export default function App() {
     }
 
     let kesimpulanA = `${data.jenisTindakan || "?"} mammae ${lat}:\n${diagLine}\nStaging patologis (AJCC edisi ke-8): ${stagingCombined || "belum dapat ditentukan"}`;
-    if (rcbResult) kesimpulanA += `\nBeban kanker residual (RCB): ${rcbResult.index} (kelas ${rcbResult.kelas} — ${rcbLabelID[rcbResult.label] || rcbResult.label})`;
+    if (rcbResult) kesimpulanA += `\nResidual cancer burden (RCB): ${rcbResult.index} (class ${rcbResult.kelas} — ${rcbResult.label})`;
     kesimpulanA += `\n\n${bullets.map((b) => `- ${b}`).join("\n")}`;
     kesimpulanA += ihkBlock;
 
@@ -940,22 +1018,79 @@ export default function App() {
             {active === "makro" && (
               <>
                 <SectionHeader title="Gambaran Makroskopik" sub={data.spesimenTambahan ? "Ini untuk Spesimen A saja." : undefined} />
-                <Field label="Ukuran spesimen total (P X L X T)">
-                  <DimRow dims={["P", "L", "T"]} values={[data.ukuranSpesimenP, data.ukuranSpesimenL, data.ukuranSpesimenT]} unit="cm" onChange={(i, v) => set(["ukuranSpesimenP", "ukuranSpesimenL", "ukuranSpesimenT"][i])(v)} />
-                </Field>
-                <Field label="Ukuran tumor makroskopik (P X L X T)">
-                  <DimRow dims={["P", "L", "T"]} values={[data.ukuranTumorMakroP, data.ukuranTumorMakroL, data.ukuranTumorMakroT]} unit="cm" onChange={(i, v) => set(["ukuranTumorMakroP", "ukuranTumorMakroL", "ukuranTumorMakroT"][i])(v)} />
-                </Field>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
-                  <Field label="Konsistensi (massa tumor)">
+
+                {isBiopsi && (
+                  <div style={{ padding: 14, borderRadius: 8, background: "#fff", border: `1px solid ${T.line}`, marginBottom: 16 }}>
+                    <h3 style={{ fontSize: 15, color: T.eosinDeep, marginBottom: 10 }}>Spesimen Biopsi (bisa lebih dari satu)</h3>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
+                      <Field label="Jumlah spesimen">
+                        <TextInput mono value={data.biopsiJumlahSpesimen} onChange={setBiopsiJumlah} placeholder="mis. 3" />
+                      </Field>
+                      <Field label="Satuan jaringan">
+                        <ChoiceRow value={data.biopsiSatuanJaringan} onChange={set("biopsiSatuanJaringan")} options={["Potongan", "Helaian"]} />
+                      </Field>
+                      <Field label="Mode ukuran">
+                        <ChoiceRow value={data.biopsiUkuranMode || "Dimensi"} onChange={set("biopsiUkuranMode")} options={["Dimensi", "Diameter"]} />
+                      </Field>
+                    </div>
+                    {data.biopsiPotonganList.map((p, idx) => (
+                      <div key={p.id} style={{ marginBottom: 8 }}>
+                        <span style={{ fontSize: 11.5, color: T.inkSoft }}>Spesimen {idx + 1}</span>
+                        {data.biopsiUkuranMode === "Diameter" ? (
+                          <NumUnit value={p.diameter} onChange={(v) => updateBiopsiDiameter(p.id, v)} placeholder="mis. 1,5-2" unit="cm" />
+                        ) : (
+                          <DimRow dims={["P", "L", "T"]} values={[p.p, p.l, p.t]} unit="cm" onChange={(i, v) => updateBiopsiDim(p.id, i, v)} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!isBiopsi && (
+                  <>
+                    <Field label="Mode ukuran spesimen">
+                      <ChoiceRow value={data.ukuranSpesimenMode || "Dimensi"} onChange={set("ukuranSpesimenMode")} options={["Dimensi", "Diameter"]} />
+                    </Field>
+                    {data.ukuranSpesimenMode === "Diameter" ? (
+                      <Field label="Diameter spesimen">
+                        <TextInput mono value={data.ukuranSpesimenDiameter} onChange={set("ukuranSpesimenDiameter")} placeholder="mis. 1,5-2 cm" />
+                      </Field>
+                    ) : (
+                      <Field label="Ukuran spesimen total (P X L X T)">
+                        <DimRow dims={["P", "L", "T"]} values={[data.ukuranSpesimenP, data.ukuranSpesimenL, data.ukuranSpesimenT]} unit="cm" onChange={(i, v) => set(["ukuranSpesimenP", "ukuranSpesimenL", "ukuranSpesimenT"][i])(v)} />
+                      </Field>
+                    )}
+                  </>
+                )}
+
+                {!isBiopsi && (
+                  <>
+                    <Field label="Mode ukuran tumor">
+                      <ChoiceRow value={data.ukuranTumorMakroMode || "Dimensi"} onChange={set("ukuranTumorMakroMode")} options={["Dimensi", "Diameter"]} />
+                    </Field>
+                    {data.ukuranTumorMakroMode === "Diameter" ? (
+                      <Field label="Diameter tumor">
+                        <TextInput mono value={data.ukuranTumorMakroDiameter} onChange={set("ukuranTumorMakroDiameter")} placeholder="mis. 1,5-2 cm" />
+                      </Field>
+                    ) : (
+                      <Field label="Ukuran tumor makroskopik (P X L X T)">
+                        <DimRow dims={["P", "L", "T"]} values={[data.ukuranTumorMakroP, data.ukuranTumorMakroL, data.ukuranTumorMakroT]} unit="cm" onChange={(i, v) => set(["ukuranTumorMakroP", "ukuranTumorMakroL", "ukuranTumorMakroT"][i])(v)} />
+                      </Field>
+                    )}
+                  </>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: isBiopsi ? "1fr 1fr" : "1fr 1fr 1fr", gap: 16 }}>
+                  <Field label="Konsistensi">
                     <TextInput value={data.konsistensi} onChange={set("konsistensi")} placeholder="mis. kenyal" />
                   </Field>
-                  <Field label="Warna (massa tumor)">
+                  <Field label="Warna">
                     <TextInput value={data.warnaMakro} onChange={set("warnaMakro")} placeholder="mis. putih kekuningan" />
                   </Field>
-                  <Field label="Batas tumor">
-                    <ChoiceRow value={data.batasTumorMakro} onChange={set("batasTumorMakro")} options={["Tegas", "Tidak tegas"]} />
-                  </Field>
+                  {!isBiopsi && (
+                    <Field label="Batas tumor">
+                      <ChoiceRow value={data.batasTumorMakro} onChange={set("batasTumorMakro")} options={["Tegas", "Tidak tegas"]} />
+                    </Field>
+                  )}
                 </div>
 
                 {!isBiopsi && (
@@ -1088,20 +1223,10 @@ export default function App() {
                   <TextInput value={data.diagnosisManual} onChange={set("diagnosisManual")} placeholder="Kosongkan untuk pakai hasil dropdown di atas" />
                 </Field>
 
-                {data.pcrToggle === "Ya" ? (
-                  <>
-                    <Field label="Deskripsi tumor bed (bisa kamu ubah bebas)">
-                      <TextArea value={data.tumorBedDeskripsi} onChange={set("tumorBedDeskripsi")} rows={4} />
-                    </Field>
-                    <VerifyNote />
-                  </>
-                ) : (
+                {!data.pcrToggle && (
                   <>
                     <Field label="Ukuran tumor invasif terbesar">
                       <TextInput mono value={data.ukuranTumor} onChange={set("ukuranTumor")} placeholder="mis. 4 cm" />
-                    </Field>
-                    <Field label="Ada epidermis pada potongan massa?">
-                      <ChoiceRow value={data.massaEpidermis} onChange={set("massaEpidermis")} options={["Ya", "Tidak"]} />
                     </Field>
 
                     <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
@@ -1119,8 +1244,8 @@ export default function App() {
                         <Field label="Anak inti (nukleoli)">
                           <ChoiceRow value={data.anakInti} onChange={set("anakInti")} options={["Ada", "Tidak ada"]} />
                         </Field>
-                        <Field label="Mitosis (per mm²)">
-                          <NumUnit value={data.mitosisPerMM2} onChange={set("mitosisPerMM2")} placeholder="mis. 6" unit="/mm²" />
+                        <Field label="Mitosis (per 10 LPB / HPF)">
+                          <NumUnit value={data.mitosisPer10LPB} onChange={set("mitosisPer10LPB")} placeholder="mis. 8" unit="/10 LPB" />
                         </Field>
                       </div>
                       {gradeInfo && (
@@ -1137,14 +1262,6 @@ export default function App() {
                       <Field label="Limfosit pada stroma intratumoral">
                         <NumUnit value={data.tilsPersen} onChange={set("tilsPersen")} placeholder="mis. 10" unit="%" />
                       </Field>
-                      <Field label="Sebukan sel radang lain (jenis)">
-                        <MultiChip values={data.sebukanJenis} onChange={set("sebukanJenis")} options={SEBUKAN_OPTIONS} />
-                      </Field>
-                      {data.sebukanJenis.length > 0 && (
-                        <Field label="Intensitas sebukan">
-                          <ChoiceRow value={data.sebukanIntensitas} onChange={set("sebukanIntensitas")} options={["Ringan", "Moderate", "Keras"]} />
-                        </Field>
-                      )}
                       <Field label="Reaksi stroma (bisa pilih lebih dari satu)">
                         <MultiChip values={data.reaksiStroma} onChange={set("reaksiStroma")} options={STROMA_OPTIONS} />
                       </Field>
@@ -1196,30 +1313,6 @@ export default function App() {
                     </div>
 
                     <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
-                      <Field label="DCIS">
-                        <ChoiceRow value={data.dcisAda} onChange={set("dcisAda")} options={["Positif", "Negatif"]} />
-                      </Field>
-                      {data.dcisAda === "Positif" && (
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                          <Field label="Grade DCIS">
-                            <Select value={data.dcisGrade} onChange={set("dcisGrade")} options={["Rendah", "Intermediate", "Tinggi"]} />
-                          </Field>
-                          <Field label="Nekrosis komedo">
-                            <ChoiceRow value={data.dcisNekrosis} onChange={set("dcisNekrosis")} options={["Ada", "Tidak"]} />
-                          </Field>
-                        </div>
-                      )}
-                      <Field label="LCIS">
-                        <ChoiceRow value={data.lcisAda} onChange={set("lcisAda")} options={["Positif", "Negatif"]} />
-                      </Field>
-                      {data.lcisAda === "Positif" && (
-                        <Field label="Tipe LCIS (WHO)">
-                          <Select value={data.lcisTipe} onChange={set("lcisTipe")} options={["Classic (CLCIS)", "Florid (FLCIS)", "Pleomorphic (PLCIS)"]} />
-                        </Field>
-                      )}
-                    </div>
-
-                    <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <h3 style={{ fontSize: 15, color: T.eosinDeep, margin: 0 }}>Deskripsi Massa (bisa diedit)</h3>
                         <button onClick={regenMassa} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.hema}`, background: "transparent", color: T.hemaDeep, fontSize: 12, cursor: "pointer" }}>
@@ -1230,6 +1323,57 @@ export default function App() {
                       <VerifyNote />
                     </div>
                   </>
+                )}
+
+                <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
+                  <Field label="Ada epidermis pada potongan massa?">
+                    <ChoiceRow value={data.massaEpidermis} onChange={set("massaEpidermis")} options={["Ya", "Tidak"]} />
+                  </Field>
+                  <Field label="Sebukan sel radang (jenis)">
+                    <MultiChip values={data.sebukanJenis} onChange={set("sebukanJenis")} options={SEBUKAN_OPTIONS} />
+                  </Field>
+                  {data.sebukanJenis.length > 0 && (
+                    <Field label="Intensitas sebukan">
+                      <ChoiceRow value={data.sebukanIntensitas} onChange={set("sebukanIntensitas")} options={["Ringan", "Moderate", "Keras"]} />
+                    </Field>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
+                  <Field label="DCIS">
+                    <ChoiceRow value={data.dcisAda} onChange={set("dcisAda")} options={["Positif", "Negatif"]} />
+                  </Field>
+                  {data.dcisAda === "Positif" && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                      <Field label="Grade DCIS">
+                        <Select value={data.dcisGrade} onChange={set("dcisGrade")} options={["Rendah", "Intermediate", "Tinggi"]} />
+                      </Field>
+                      <Field label="Nekrosis komedo">
+                        <ChoiceRow value={data.dcisNekrosis} onChange={set("dcisNekrosis")} options={["Ada", "Tidak"]} />
+                      </Field>
+                    </div>
+                  )}
+                  <Field label="LCIS">
+                    <ChoiceRow value={data.lcisAda} onChange={set("lcisAda")} options={["Positif", "Negatif"]} />
+                  </Field>
+                  {data.lcisAda === "Positif" && (
+                    <Field label="Tipe LCIS (WHO)">
+                      <Select value={data.lcisTipe} onChange={set("lcisTipe")} options={["Classic (CLCIS)", "Florid (FLCIS)", "Pleomorphic (PLCIS)"]} />
+                    </Field>
+                  )}
+                </div>
+
+                {data.pcrToggle === "Ya" && (
+                  <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 15, color: T.eosinDeep, margin: 0 }}>Deskripsi Tumor Bed (bisa diedit)</h3>
+                      <button onClick={regenTumorBed} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.hema}`, background: "transparent", color: T.hemaDeep, fontSize: 12, cursor: "pointer" }}>
+                        ↻ Buat/perbarui draf
+                      </button>
+                    </div>
+                    <TextArea value={data.tumorBedDeskripsi} onChange={set("tumorBedDeskripsi")} rows={6} placeholder="Klik 'Buat/perbarui draf' untuk menyusun draf otomatis, lalu edit bebas." />
+                    <VerifyNote />
+                  </div>
                 )}
 
                 {!isBiopsi && (
