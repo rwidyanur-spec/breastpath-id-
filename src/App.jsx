@@ -27,6 +27,7 @@ const SECTIONS = [
 ];
 
 const PERSEN_OPTIONS = ["0%", "1%", "5%", "10%", "20%", "30%", "50%", "70%", "90%", "100%"];
+const KI67_OPTIONS = ["0%", "5%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%"];
 const HORMONE_TIER_OPTIONS = ["<20%", "20-50%", "50-80%", ">80%"];
 const TUMOR_BED_DEFAULT = "Tampak fibrosis stroma, makrofag berpigmen hemosiderin, dan sebukan limfosit kronik sebagai tanda regresi tumor pasca-terapi neoadjuvan, tanpa residual karsinoma invasif.";
 const VERIFY_NOTE = "Verifikasi ulang sesuai temuan mikroskopis.";
@@ -109,6 +110,8 @@ function initMargins() {
 
 function makeInitialData() {
   return {
+  jenisLaporan: "",
+  ihkBlokKeterangan: "",
   jenisKelamin: "",
   jenisTindakan: "",
   spesimenTambahan: "",
@@ -454,6 +457,41 @@ function computeTumorBedDraft(d) {
   return s.trim();
 }
 
+function hormoneLine(label, result, intensitas, tier) {
+  if (result?.status === "Positif") return `- ${label}: (+) positif ${intensitas || ""}, ${tier || "?"} pada sel-sel tumor`;
+  return `- ${label}: (-) negatif pada sel-sel tumor`;
+}
+
+function her2Line(d) {
+  if (d.her2Pewarnaan !== "Terpulas") {
+    return "- Human Epidermal Growth Factor 2 (HER2): (-) Negatif pada sel-sel tumor — HER2 Negative (0)";
+  }
+  const persen = pctNum(d.her2Persen);
+  const persenText = persen > 10 ? "lebih dari 10%" : "kurang dari 10%";
+  if (d.her2Kelengkapan === "Inkomplit") {
+    if (persen <= 10) {
+      return `- Human Epidermal Growth Factor 2 (HER2): (+) Positif lemah, inkomplet, ${persenText} pada sel-sel tumor — HER2 Ultralow (0+)`;
+    }
+    return `- Human Epidermal Growth Factor 2 (HER2): (+) Positif lemah sampai sedang, inkomplet, ${persenText} pada sel-sel tumor — HER2 Low (1+)`;
+  }
+  if (d.her2Kelengkapan === "Komplit") {
+    if (d.her2Intensitas === "Kuat" && persen > 10) {
+      return "- Human Epidermal Growth Factor 2 (HER2): (+) Positif kuat, komplet, lebih dari 10% pada sel-sel tumor — HER2 Positive (3+)";
+    }
+    const intensText = d.her2Intensitas === "Kuat" ? "kuat" : "lemah sampai sedang";
+    return `- Human Epidermal Growth Factor 2 (HER2): (+) Positif ${intensText}, komplet, ${persenText} pada sel-sel tumor — HER2 Equivocal (2+)`;
+  }
+  return "- Human Epidermal Growth Factor 2 (HER2): data belum lengkap";
+}
+
+function ki67Line(ki67Persen) {
+  if (!ki67Persen) return "- Ki-67: data belum diisi";
+  const persen = pctNum(ki67Persen);
+  const arah = persen >= 20 ? "lebih dari 20%" : "kurang dari 20%";
+  const prolif = persen >= 20 ? "High Proliferation" : "Low Proliferation";
+  return `- Ki-67: (+) Positif ${arah} (${ki67Persen}), ${prolif}`;
+}
+
 function computeMassaDraft(d) {
   if (d.pcrToggle === "Ya") return d.tumorBedDeskripsi || "";
   const lat = d.lateralitas ? ` ${d.lateralitas.toLowerCase()}` : "";
@@ -690,7 +728,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const isBiopsi = data.jenisTindakan === "Biopsi";
-  const activeIdx = SECTIONS.findIndex((s) => s.id === active);
+  const visibleSections = data.jenisLaporan === "IHK saja" ? SECTIONS.filter((s) => ["spesimen", "ihk", "hasil"].includes(s.id)) : SECTIONS;
+  const activeIdx = visibleSections.findIndex((s) => s.id === active);
 
   React.useEffect(() => {
     (async () => {
@@ -819,6 +858,25 @@ export default function App() {
   const marginGroups = useMemo(() => computeMarginGroups(data.margins), [data.margins]);
 
   function buildReport() {
+    const jk0 = data.jenisKelamin ? data.jenisKelamin.toLowerCase() : "?";
+    if (data.jenisLaporan === "IHK saja") {
+      const opening = `Pemeriksaan imunohistokimia pada blok ${data.ihkBlokKeterangan || "?"} dari ${jk0} usia ${data.usiaPasien || "?"} tahun dengan diagnosis klinik ${data.diagnosisKlinis || "tidak tercantum"}.`;
+      const lines = [
+        "Pemeriksaan Imunohistokimia:",
+        hormoneLine("Reseptor Estrogen (ER)", erResult, data.erIntensitas, data.erPersenTier),
+        hormoneLine("Reseptor Progesteron (PR)", prResult, data.prIntensitas, data.prPersenTier),
+        her2Line(data),
+        ki67Line(data.ki67Persen),
+      ];
+      let subtipeLine = "";
+      if (subtypeAuto?.ekuivokal) {
+        subtipeLine = "Subtipe molekuler: Belum dapat ditentukan — status HER2 ekuivokal. Saran: Pemeriksaan FISH/CISH.";
+      } else if (subtypeAuto?.text) {
+        subtipeLine = `Subtipe molekuler: ${subtypeAuto.text}`;
+      }
+      return [opening, "", lines.join("\n"), subtipeLine].filter(Boolean).join("\n\n");
+    }
+
     const lat = data.lateralitas || "";
     const jk = data.jenisKelamin ? data.jenisKelamin.toLowerCase() : "?";
     const adaB = !!data.spesimenTambahan;
@@ -898,10 +956,10 @@ export default function App() {
     } else if (data.ihkStatus === "Bersamaan") {
       const ihkLines = [
         "Pemeriksaan Imunohistokimia:",
-        `- Reseptor Estrogen (ER): ${erResult?.status === "Positif" ? "(+) positif" : "(-) negatif"} ${data.erIntensitas || ""}, ${data.erPersenTier || "?"} pada sel-sel tumor`,
-        `- Reseptor Progesteron (PR): ${prResult?.status === "Positif" ? "(+) positif" : "(-) negatif"} ${data.prIntensitas || ""}, ${data.prPersenTier || "?"} pada sel-sel tumor`,
-        `- Human Epidermal Growth Factor 2 (HER2): ${her2Result?.statusResmi || "?"} (skor ${her2Result?.skor || "?"}, ${her2Result?.kategori || "?"})`,
-        `- Ki-67: ${data.ki67Persen || "?"} pada sel-sel tumor`,
+        hormoneLine("Reseptor Estrogen (ER)", erResult, data.erIntensitas, data.erPersenTier),
+        hormoneLine("Reseptor Progesteron (PR)", prResult, data.prIntensitas, data.prPersenTier),
+        her2Line(data),
+        ki67Line(data.ki67Persen),
       ];
       let subtipeLine;
       if (subtypeAuto?.ekuivokal) {
@@ -939,7 +997,7 @@ export default function App() {
   }
 
   const goNext = () => {
-    if (activeIdx < SECTIONS.length - 1) setActive(SECTIONS[activeIdx + 1].id);
+    if (activeIdx < visibleSections.length - 1) setActive(visibleSections[activeIdx + 1].id);
   };
 
   return (
@@ -974,7 +1032,7 @@ export default function App() {
         <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
           <div>
             <div style={{ background: T.paper, border: `1px solid ${T.line}`, borderRadius: 10, padding: 8, position: "sticky", top: 16 }}>
-              {SECTIONS.map((s) => (
+              {visibleSections.map((s) => (
                 <button key={s.id} onClick={() => setActive(s.id)} style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 12px", borderRadius: 7, border: "none", background: active === s.id ? T.hema : "transparent", color: active === s.id ? "#fff" : T.ink, fontSize: 13.5, fontWeight: active === s.id ? 600 : 400, cursor: "pointer", marginBottom: 3, fontFamily: "'IBM Plex Sans', sans-serif" }}>
                   {s.label}
                 </button>
@@ -987,6 +1045,9 @@ export default function App() {
             {active === "spesimen" && (
               <>
                 <SectionHeader title="Sediaan" />
+                <Field label="Jenis Laporan">
+                  <ChoiceRow value={data.jenisLaporan || "Laporan Lengkap"} onChange={set("jenisLaporan")} options={["Laporan Lengkap", "IHK saja"]} />
+                </Field>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                   <Field label="Jenis kelamin">
                     <ChoiceRow value={data.jenisKelamin} onChange={set("jenisKelamin")} options={["Laki-laki", "Perempuan"]} />
@@ -1521,11 +1582,18 @@ export default function App() {
             {active === "ihk" && (
               <>
                 <SectionHeader title="Imunohistokimia" />
-                <Field label="Status pemeriksaan IHK">
-                  <ChoiceRow value={data.ihkStatus} onChange={set("ihkStatus")} options={["Bersamaan", "Menyusul", "Tidak dapat dilakukan"]} />
-                </Field>
+                {data.jenisLaporan === "IHK saja" && (
+                  <Field label="Nomor/keterangan blok yang diperiksa">
+                    <TextInput value={data.ihkBlokKeterangan} onChange={set("ihkBlokKeterangan")} placeholder="mis. A2, atau spesimen sebelumnya no. 123" />
+                  </Field>
+                )}
+                {data.jenisLaporan !== "IHK saja" && (
+                  <Field label="Status pemeriksaan IHK">
+                    <ChoiceRow value={data.ihkStatus} onChange={set("ihkStatus")} options={["Bersamaan", "Menyusul", "Tidak dapat dilakukan"]} />
+                  </Field>
+                )}
 
-                {data.ihkStatus === "Bersamaan" && (
+                {(data.jenisLaporan === "IHK saja" || data.ihkStatus === "Bersamaan") && (
                   <>
                     <h3 style={{ fontSize: 15, color: T.eosinDeep, marginBottom: 4 }}>ER</h3>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16 }}>
@@ -1591,7 +1659,7 @@ export default function App() {
                     <h3 style={{ fontSize: 15, color: T.eosinDeep, marginBottom: 4, marginTop: 18 }}>Ki-67</h3>
                     <div style={{ maxWidth: 260 }}>
                       <Field label="Persentase sel tumor">
-                        <Select value={data.ki67Persen} onChange={set("ki67Persen")} options={PERSEN_OPTIONS} />
+                        <Select value={data.ki67Persen} onChange={set("ki67Persen")} options={KI67_OPTIONS} />
                       </Field>
                     </div>
                     <h3 style={{ fontSize: 15, color: T.eosinDeep, marginBottom: 4, marginTop: 18 }}>Subtipe Molekuler</h3>
