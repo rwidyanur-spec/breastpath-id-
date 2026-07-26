@@ -1372,17 +1372,6 @@ export default function App() {
                         <ChoiceRow value={data.perineural} onChange={set("perineural")} options={["Positif", "Negatif"]} />
                       </Field>
                     </div>
-
-                    <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <h3 style={{ fontSize: 15, color: T.eosinDeep, margin: 0 }}>Deskripsi Massa (bisa diedit)</h3>
-                        <button onClick={regenMassa} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.hema}`, background: "transparent", color: T.hemaDeep, fontSize: 12, cursor: "pointer" }}>
-                          ↻ Buat/perbarui draf
-                        </button>
-                      </div>
-                      <TextArea value={data.massaDeskripsi} onChange={set("massaDeskripsi")} rows={7} placeholder="Klik 'Buat/perbarui draf' untuk menyusun draf otomatis, lalu edit bebas." />
-                      <VerifyNote />
-                    </div>
                   </>
                 )}
 
@@ -1423,6 +1412,19 @@ export default function App() {
                     </Field>
                   )}
                 </div>
+
+                {!data.pcrToggle && (
+                  <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <h3 style={{ fontSize: 15, color: T.eosinDeep, margin: 0 }}>Deskripsi Massa (bisa diedit)</h3>
+                      <button onClick={regenMassa} style={{ padding: "6px 12px", borderRadius: 6, border: `1px solid ${T.hema}`, background: "transparent", color: T.hemaDeep, fontSize: 12, cursor: "pointer" }}>
+                        ↻ Buat/perbarui draf
+                      </button>
+                    </div>
+                    <TextArea value={data.massaDeskripsi} onChange={set("massaDeskripsi")} rows={7} placeholder="Klik 'Buat/perbarui draf' untuk menyusun draf otomatis, lalu edit bebas." />
+                    <VerifyNote />
+                  </div>
+                )}
 
                 {data.pcrToggle === "Ya" && (
                   <div style={{ marginTop: 6, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
