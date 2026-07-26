@@ -149,6 +149,7 @@ function makeInitialData() {
   margins: initMargins(),
   cetakStatus: "",
   jaringanList: [],
+  biopsiJumlahKaset: "",
   makrosDeskripsi: "",
 
   papilaMikroGanas: "",
@@ -708,12 +709,18 @@ function computeMakrosDraft(d, isBiopsi) {
       s += ".";
     }
   }
-  const numbered = computeJaringanNumbering(d.jaringanList);
-  if (numbered.length) {
-    if (numbered.length === 1 && d.cetakStatus === "Semua") {
-      s += ` Cetak semua, ${numbered[0].kaset || 1} kaset.`;
-    } else {
-      s += ` Cetak sebagian:\n` + numbered.map((j) => `${j.label} ${j.nama || "(tanpa nama)"}, ${j.kaset || 1} kaset`).join("\n");
+  if (isBiopsi) {
+    if (d.biopsiJumlahKaset) {
+      s += d.cetakStatus === "Semua" ? ` Cetak semua, ${d.biopsiJumlahKaset} kaset.` : ` Cetak sebagian, ${d.biopsiJumlahKaset} kaset.`;
+    }
+  } else {
+    const numbered = computeJaringanNumbering(d.jaringanList);
+    if (numbered.length) {
+      if (numbered.length === 1 && d.cetakStatus === "Semua") {
+        s += ` Cetak semua, ${numbered[0].kaset || 1} kaset.`;
+      } else {
+        s += ` Cetak sebagian:\n` + numbered.map((j) => `${j.label} ${j.nama || "(tanpa nama)"}, ${j.kaset || 1} kaset`).join("\n");
+      }
     }
   }
   return s.trim();
@@ -907,7 +914,9 @@ export default function App() {
       if (n.includes("nodul") || n.includes("kgb") || n.includes("kelenjar")) return kgbMikroText || "Belum diisi.";
       return "Tak tampak tanda ganas.";
     };
-    let mikrosA = jaringanNumbered.length
+    let mikrosA = isBiopsi
+      ? (data.pcrToggle === "Ya" ? data.tumorBedDeskripsi : data.massaDeskripsi) || "Belum diisi."
+      : jaringanNumbered.length
       ? jaringanNumbered.map((j) => {
           const n = (j.nama || "").toLowerCase();
           const displayNama = isMassaName(n) && massaLabel ? massaLabel : j.nama || "(tanpa nama)";
@@ -1059,7 +1068,7 @@ export default function App() {
                     <Select value={data.jenisTindakan} onChange={onJenisTindakanChange} options={["Biopsi", "Lumpektomi", "Mastektomi", "Eksisi luas (wide excision)"]} />
                   </Field>
                   <Field label="Lateralitas">
-                    <ChoiceRow value={data.lateralitas} onChange={set("lateralitas")} options={["Dekstra", "Sinistra", "Bilateral"]} />
+                    <ChoiceRow value={data.lateralitas} onChange={set("lateralitas")} options={["Dekstra", "Sinistra"]} />
                   </Field>
                   <Field label="Spesimen tambahan (opsional, mis. KGB axilla terpisah)">
                     <TextInput value={data.spesimenTambahan} onChange={set("spesimenTambahan")} placeholder="mis. Kelenjar getah bening axilla dekstra" />
@@ -1223,26 +1232,34 @@ export default function App() {
                   <Field label="Status cetak">
                     <ChoiceRow value={data.cetakStatus} onChange={set("cetakStatus")} options={["Sebagian", "Semua"]} />
                   </Field>
-                  {data.jaringanList.map((j, idx) => (
-                    <div key={j.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 60px 32px", gap: 8, marginBottom: 8, alignItems: "center" }}>
-                      <TextInput value={j.nama} onChange={(v) => updateJaringan(j.id, "nama", v)} placeholder="Nama jaringan, mis. Massa" />
-                      <TextInput mono value={j.kaset} onChange={(v) => updateJaringan(j.id, "kaset", v)} placeholder="Kaset" />
-                      <div style={{ display: "flex", gap: 2 }}>
-                        <button onClick={() => moveJaringan(j.id, -1)} disabled={idx === 0} style={{ border: "none", background: "transparent", color: T.hemaDeep, cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.3 : 1, fontSize: 14 }}>
-                          ↑
-                        </button>
-                        <button onClick={() => moveJaringan(j.id, 1)} disabled={idx === data.jaringanList.length - 1} style={{ border: "none", background: "transparent", color: T.hemaDeep, cursor: idx === data.jaringanList.length - 1 ? "default" : "pointer", opacity: idx === data.jaringanList.length - 1 ? 0.3 : 1, fontSize: 14 }}>
-                          ↓
-                        </button>
-                      </div>
-                      <button onClick={() => removeJaringan(j.id)} style={{ border: "none", background: "transparent", color: T.eosinDeep, cursor: "pointer", fontSize: 18 }}>
-                        ×
+                  {isBiopsi ? (
+                    <Field label="Jumlah kaset">
+                      <TextInput mono value={data.biopsiJumlahKaset} onChange={set("biopsiJumlahKaset")} placeholder="mis. 4" />
+                    </Field>
+                  ) : (
+                    <>
+                      {data.jaringanList.map((j, idx) => (
+                        <div key={j.id} style={{ display: "grid", gridTemplateColumns: "1fr 90px 60px 32px", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                          <TextInput value={j.nama} onChange={(v) => updateJaringan(j.id, "nama", v)} placeholder="Nama jaringan, mis. Massa" />
+                          <TextInput mono value={j.kaset} onChange={(v) => updateJaringan(j.id, "kaset", v)} placeholder="Kaset" />
+                          <div style={{ display: "flex", gap: 2 }}>
+                            <button onClick={() => moveJaringan(j.id, -1)} disabled={idx === 0} style={{ border: "none", background: "transparent", color: T.hemaDeep, cursor: idx === 0 ? "default" : "pointer", opacity: idx === 0 ? 0.3 : 1, fontSize: 14 }}>
+                              ↑
+                            </button>
+                            <button onClick={() => moveJaringan(j.id, 1)} disabled={idx === data.jaringanList.length - 1} style={{ border: "none", background: "transparent", color: T.hemaDeep, cursor: idx === data.jaringanList.length - 1 ? "default" : "pointer", opacity: idx === data.jaringanList.length - 1 ? 0.3 : 1, fontSize: 14 }}>
+                              ↓
+                            </button>
+                          </div>
+                          <button onClick={() => removeJaringan(j.id)} style={{ border: "none", background: "transparent", color: T.eosinDeep, cursor: "pointer", fontSize: 18 }}>
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button onClick={addJaringan} style={{ padding: "8px 14px", borderRadius: 7, border: `1px dashed ${T.hema}`, background: "transparent", color: T.hemaDeep, fontSize: 13, cursor: "pointer" }}>
+                        + Tambah jaringan
                       </button>
-                    </div>
-                  ))}
-                  <button onClick={addJaringan} style={{ padding: "8px 14px", borderRadius: 7, border: `1px dashed ${T.hema}`, background: "transparent", color: T.hemaDeep, fontSize: 13, cursor: "pointer" }}>
-                    + Tambah jaringan
-                  </button>
+                    </>
+                  )}
                 </div>
 
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
